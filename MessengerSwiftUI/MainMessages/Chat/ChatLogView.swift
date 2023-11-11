@@ -89,6 +89,7 @@ class ChatLogViewModel: ObservableObject {
             }
             print("Successfully saved current user sending message")
             self.chatText = ""
+            self.count += 1
         }
         
         let recipientMessageDocument = FirebaseManager.shared.firestore
@@ -107,6 +108,8 @@ class ChatLogViewModel: ObservableObject {
             print("Recipient saved message as well")
         }
     }
+    
+    @Published var count = 0
 }
 
 struct ChatLogView: View {
@@ -121,7 +124,6 @@ struct ChatLogView: View {
     @ObservedObject var vm: ChatLogViewModel
     
     var body: some View {
-
         
         ZStack {
             messagesView
@@ -133,43 +135,72 @@ struct ChatLogView: View {
             }
         }
         .navigationTitle(chatUser?.email ?? "")
-            .navigationBarTitleDisplayMode(.inline)
+        .navigationBarTitleDisplayMode(.inline)
+//        .navigationBarItems(trailing: Button(action: {
+//            vm.count += 1
+//        }, label: {
+//            Text("Count: \(vm.count)")
+//        }))
     }
+    
+    struct MessageView: View {
+        
+        let message: ChatMessage
+        let index: Int
+        let msgCount: Int
+        
+        var body: some View {
+            VStack {
+                if (message.fromId == FirebaseManager.shared.auth.currentUser?.uid &&
+                    message.fromId != message.toId) || (index % 2 == 0) {
+                    HStack {
+                        Spacer()
+                        HStack {
+                            Text(message.text).foregroundColor(.white)
+                        }
+                        .padding()
+                        .background(Color.blue)
+                        .cornerRadius(8)
+                    }
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+                    .padding(.bottom, index == msgCount - 1 ? 80 : 0)
+                } else {
+                    HStack {
+                        HStack {
+                            Text(message.text).foregroundColor(.black)
+                        }
+                        .padding()
+                        .background(Color.white)
+                        .cornerRadius(8)
+                        Spacer()
+                    }
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+                    .padding(.bottom, index == msgCount - 1 ? 80 : 0)
+                }
+            }
+        }
+    }
+    
+    static let emptyScrollToString = "Empty"
     
     private var messagesView: some View {
         ScrollView {
-            ForEach(vm.chatMessages.indices, id: \.self) {index in
-                let message = vm.chatMessages[index]
-                VStack {
-                    if (message.fromId == FirebaseManager.shared.auth.currentUser?.uid &&
-                        message.fromId != message.toId) || (index % 2 == 0) {
-                        HStack {
-                            Spacer()
-                            HStack {
-                                Text(message.text).foregroundColor(.white)
-                            }
-                            .padding()
-                            .background(Color.blue)
-                            .cornerRadius(8)
-                        }
-                        .padding(.horizontal)
-                        .padding(.top, 8)
-                    } else {
-                        HStack {
-                            HStack {
-                                Text(message.text).foregroundColor(.black)
-                            }
-                            .padding()
-                            .background(Color.white)
-                            .cornerRadius(8)
-                            Spacer()
-                        }
-                        .padding(.horizontal)
-                        .padding(.top, 8)
-                    }
+            ScrollViewReader { scrollViewProxy in
+                ForEach(vm.chatMessages.indices, id: \.self) {index in
+                    MessageView(message: vm.chatMessages[index], index: index, msgCount: vm.chatMessages.count)
                 }
                 
+                HStack{Spacer()}
+                    .id(Self.emptyScrollToString)
+                    .onReceive(vm.$count) { _ in
+                        withAnimation(.easeOut(duration: 0.5)) {
+                            scrollViewProxy.scrollTo(Self.emptyScrollToString, anchor: .bottom)
+                        }
+                    }
             }
+            
             
             HStack{ Spacer() }
         }
@@ -181,7 +212,12 @@ struct ChatLogView: View {
             Image(systemName: "photo.on.rectangle")
                 .font(.system(size: 24))
                 .foregroundColor(Color(.darkGray))
-            TextField("Description", text: $vm.chatText)
+            ZStack {
+                DescriptionPlaceholder()
+                TextEditor(text: $vm.chatText)
+                    .opacity(vm.chatText.isEmpty ? 0.5 : 1)
+            }
+            .frame(height: 40)
             Button {
                 vm.handleSend()
             } label: {
@@ -194,7 +230,20 @@ struct ChatLogView: View {
             .cornerRadius(4)
         }
         .padding(.horizontal)
-        .padding(.vertical, 12)
+        .padding(.vertical, 16)
+    }
+    
+    private struct DescriptionPlaceholder: View {
+        var body: some View {
+            HStack {
+                Text("Description")
+                    .foregroundColor(Color(.gray))
+                    .font(.system(size: 17))
+                    .padding(.leading, 5)
+                    .padding(.top, -4)
+                Spacer()
+            }
+        }
     }
 }
 
