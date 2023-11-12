@@ -7,6 +7,9 @@
 
 import SwiftUI
 import SDWebImageSwiftUI
+import Firebase
+import FirebaseFirestoreSwift
+
 
 class MainMessagesViewModel: ObservableObject {
     
@@ -21,6 +24,46 @@ class MainMessagesViewModel: ObservableObject {
         }
         
         fetchCurrentUser()
+        
+        fetchRecentMessages()
+    }
+    
+    @Published var recentMessages = [RecentMessage]()
+    
+    private func fetchRecentMessages() {
+        guard let uid = FirebaseManager.shared.auth.currentUser?.uid else {return}
+        
+        FirebaseManager.shared.firestore
+            .collection("recent_messages")
+            .document(uid)
+            .collection("messages")
+            .order(by: "timestamp")
+            .addSnapshotListener {querySnapshot, error in
+                if let error = error {
+                    self.errorMessage = "Failed to listen for recent messages: \(error)"
+                    print(error)
+                    return
+                }
+                
+                querySnapshot?.documentChanges.forEach({change in
+                    let docId = change.document.documentID
+                    
+                    if let index = self.recentMessages.firstIndex(where: { rm in
+                        return rm.id == docId
+                    }) {
+                        self.recentMessages.remove(at: index)
+                    }
+                    
+                    if let rm = try? change.document.data(as: RecentMessage.self) {
+                        self.recentMessages.insert(rm, at: 0)
+                    }
+
+                    
+                })
+            }
+        
+            
+        
     }
     
     func fetchCurrentUser() {
@@ -54,6 +97,8 @@ struct MainMessagesView: View {
     @State var shouldNavigateToChatLogView = false
     @ObservedObject private var vm = MainMessagesViewModel()
     
+    private var chatlogViewModel = ChatLogViewModel(mainUser: nil, chatUser: nil)
+    
     var body: some View {
         NavigationStack {
             VStack {
@@ -63,7 +108,8 @@ struct MainMessagesView: View {
             .overlay(newMessageButton, alignment: .bottom)
             .navigationBarHidden(true)
             .navigationDestination(isPresented: $shouldNavigateToChatLogView) {
-                ChatLogView(chatUser: self.chatUser)
+                ChatLogView(mainUser: self.vm.chatUser, chatUser: self.chatUser)
+                
             }
         }
 
@@ -130,31 +176,35 @@ struct MainMessagesView: View {
     
     private var messagesView: some View {
         ScrollView {
-            ForEach(0..<10, id: \.self) {
-                num in
+            ForEach(vm.recentMessages) { recentMessage in
                 VStack {
-                    NavigationLink {
-                        Text("Desitination")
+                    Button {
+                        let uid = FirebaseManager.shared.auth.currentUser?.uid == recentMessage.fromId ? recentMessage.toId : recentMessage.fromId
+                        self.chatUser = .init(data: [FirebaseConstants.email: recentMessage.email, FirebaseConstants.profileImageUrl: recentMessage.profileImageUrl, FirebaseConstants.uid: uid])
+//                        self.chatLogViewModel.chatUser = self.chatUser
+//                        self.chatLogViewModel.fetchMessages()
+                        self.shouldNavigateToChatLogView.toggle()
                     } label: {
                         HStack(spacing: 16) {
-                            Image(systemName: "person.fill")
-                                .font(.system(size: 32))
-                                .padding(8)
-                                .overlay(RoundedRectangle(cornerRadius: 44)
-                                    .stroke(Color(.label), lineWidth: 1)
-                                )
+                            WebImage(url: URL(string: recentMessage.profileImageUrl))
+                                .resizable()
+                                .id(recentMessage.profileImageUrl)
+                                .scaledToFill()
+                                .frame(width: 64, height: 64)
+                                .clipped()
+                                .cornerRadius(64)
                             
-                            VStack(alignment: .leading) {
-                                Text("Username")
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(recentMessage.username)
                                     .font(.system(size: 14, weight: .bold))
-                                Text("Message sent to user")
+                                    .foregroundColor(Color(.label))
+                                Text(recentMessage.text)
                                     .font(.system(size: 14))
-                                    .foregroundColor(Color(
-                                        .lightGray))
-                                        
+                                    .foregroundColor(Color(.darkGray))
+                                    .multilineTextAlignment(.leading)
                             }
                             Spacer()
-                            Text("22d")
+                            Text(recentMessage.timeAgo)
                                 .font(.system(size: 14, weight: .semibold))
                         }
                     }
