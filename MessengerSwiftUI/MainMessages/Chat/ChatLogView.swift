@@ -40,20 +40,22 @@ class ChatLogViewModel: ObservableObject {
     
     @Published var chatMessages = [ChatMessage]()
     
-    let chatUser: ChatUser?
-    let mainUser: ChatUser?
+    var chatUser: ChatUser?
     
-    init(mainUser: ChatUser?, chatUser: ChatUser?) {
+    init(chatUser: ChatUser?) {
         self.chatUser = chatUser
-        self.mainUser = mainUser
         
         fetchMessages()
     }
     
-    private func fetchMessages() {
+    var firestoreListener: ListenerRegistration?
+    
+    func fetchMessages() {
         guard let fromId = FirebaseManager.shared.auth.currentUser?.uid else {return}
         guard let toId = chatUser?.uid else {return}
-        FirebaseManager.shared.firestore
+        firestoreListener?.remove()
+        chatMessages.removeAll()
+        firestoreListener = FirebaseManager.shared.firestore
             .collection("messages")
             .document(fromId)
             .collection(toId)
@@ -72,6 +74,10 @@ class ChatLogViewModel: ObservableObject {
                     }
                 })
             }
+        
+        DispatchQueue.main.async {
+            self.count += 1
+        }
     }
     
     func handleSend() {
@@ -120,7 +126,6 @@ class ChatLogViewModel: ObservableObject {
     
     private func persistRecentMessage() {
         guard let chatUser = self.chatUser else {return}
-        guard let mainUser = self.mainUser else {return}
         
         guard let uid = FirebaseManager.shared.auth.currentUser?.uid else {return}
         guard let toId = self.chatUser?.uid else {return}
@@ -154,13 +159,14 @@ class ChatLogViewModel: ObservableObject {
             .collection("messages")
             .document(uid)
         
+        guard let currentUser = FirebaseManager.shared.currentUser else { return }
         let recipientRecentData = [
             FirebaseConstants.timestamp: Timestamp(),
             FirebaseConstants.text: self.chatText,
             FirebaseConstants.fromId: toId,
             FirebaseConstants.toId: uid,
-            FirebaseConstants.profileImageUrl: mainUser.profileImageUrl,
-            FirebaseConstants.email: mainUser.email
+            FirebaseConstants.profileImageUrl: currentUser.profileImageUrl,
+            FirebaseConstants.email: currentUser.email
         ] as [String: Any]
         
         recipientDocument.setData(recipientRecentData) { error in
@@ -178,15 +184,6 @@ class ChatLogViewModel: ObservableObject {
 
 struct ChatLogView: View {
     
-    let mainUser: ChatUser?
-    let chatUser: ChatUser?
-    
-    init(mainUser: ChatUser?, chatUser: ChatUser?) {
-        self.mainUser = mainUser
-        self.chatUser = chatUser
-        self.vm = .init(mainUser: mainUser, chatUser: chatUser)
-    }
-    
     @ObservedObject var vm: ChatLogViewModel
     
     var body: some View {
@@ -200,8 +197,11 @@ struct ChatLogView: View {
                     .background(Color.white)
             }
         }
-        .navigationTitle(chatUser?.email ?? "")
+        .navigationTitle(vm.chatUser?.email ?? "")
         .navigationBarTitleDisplayMode(.inline)
+        .onDisappear{
+            vm.firestoreListener?.remove()
+        }
     }
     
     struct MessageView: View {
@@ -249,21 +249,21 @@ struct ChatLogView: View {
     private var messagesView: some View {
         ScrollView {
             ScrollViewReader { scrollViewProxy in
-                ForEach(vm.chatMessages.indices, id: \.self) {index in
-                    MessageView(message: vm.chatMessages[index], index: index, msgCount: vm.chatMessages.count)
-                }
-                
-                HStack{Spacer()}
-                    .id(Self.emptyScrollToString)
-                    .onReceive(vm.$count) { _ in
-                        withAnimation(.easeOut(duration: 0.5)) {
-                            scrollViewProxy.scrollTo(Self.emptyScrollToString, anchor: .bottom)
-                        }
+                VStack {
+                    ForEach(vm.chatMessages.indices, id: \.self) {index in
+                        MessageView(message: vm.chatMessages[index], index: index, msgCount: vm.chatMessages.count)
                     }
+                    
+                    HStack{Spacer()}
+                        .id(Self.emptyScrollToString)
+                }
+                .onReceive(vm.$count) { _ in
+                    print("Scrolling")
+                    withAnimation(.easeOut(duration: 0.5)) {
+                        scrollViewProxy.scrollTo(Self.emptyScrollToString, anchor: .bottom)
+                    }
+                }
             }
-            
-            
-            HStack{ Spacer() }
         }
         .background(Color(.init(white: 0.95, alpha: 1)))
     }

@@ -30,10 +30,15 @@ class MainMessagesViewModel: ObservableObject {
     
     @Published var recentMessages = [RecentMessage]()
     
-    private func fetchRecentMessages() {
+    private var firestoreListener: ListenerRegistration?
+    
+    func fetchRecentMessages() {
         guard let uid = FirebaseManager.shared.auth.currentUser?.uid else {return}
+
+        firestoreListener?.remove()
+        self.recentMessages.removeAll()
         
-        FirebaseManager.shared.firestore
+        firestoreListener = FirebaseManager.shared.firestore
             .collection("recent_messages")
             .document(uid)
             .collection("messages")
@@ -58,12 +63,8 @@ class MainMessagesViewModel: ObservableObject {
                         self.recentMessages.insert(rm, at: 0)
                     }
 
-                    
                 })
             }
-        
-            
-        
     }
     
     func fetchCurrentUser() {
@@ -81,6 +82,7 @@ class MainMessagesViewModel: ObservableObject {
             
             guard let data = snapshot?.data() else {return}
             self.chatUser = .init(data: data)
+            FirebaseManager.shared.currentUser = self.chatUser
         }
     }
     
@@ -97,7 +99,7 @@ struct MainMessagesView: View {
     @State var shouldNavigateToChatLogView = false
     @ObservedObject private var vm = MainMessagesViewModel()
     
-    private var chatlogViewModel = ChatLogViewModel(mainUser: nil, chatUser: nil)
+    private var chatLogViewModel = ChatLogViewModel(chatUser: nil)
     
     var body: some View {
         NavigationStack {
@@ -108,8 +110,8 @@ struct MainMessagesView: View {
             .overlay(newMessageButton, alignment: .bottom)
             .navigationBarHidden(true)
             .navigationDestination(isPresented: $shouldNavigateToChatLogView) {
-                ChatLogView(mainUser: self.vm.chatUser, chatUser: self.chatUser)
-                
+//                ChatLogView(chatUser: self.chatUser)
+                ChatLogView(vm: chatLogViewModel)
             }
         }
 
@@ -170,6 +172,7 @@ struct MainMessagesView: View {
             LoginView(didCompleteLoginProcess: {
                 self.vm.isUserCurrentlyLoggedOut = false
                 self.vm.fetchCurrentUser()
+                self.vm.fetchRecentMessages()
             })
         }
     }
@@ -181,8 +184,8 @@ struct MainMessagesView: View {
                     Button {
                         let uid = FirebaseManager.shared.auth.currentUser?.uid == recentMessage.fromId ? recentMessage.toId : recentMessage.fromId
                         self.chatUser = .init(data: [FirebaseConstants.email: recentMessage.email, FirebaseConstants.profileImageUrl: recentMessage.profileImageUrl, FirebaseConstants.uid: uid])
-//                        self.chatLogViewModel.chatUser = self.chatUser
-//                        self.chatLogViewModel.fetchMessages()
+                        self.chatLogViewModel.chatUser = self.chatUser
+                        self.chatLogViewModel.fetchMessages()
                         self.shouldNavigateToChatLogView.toggle()
                     } label: {
                         HStack(spacing: 16) {
@@ -239,6 +242,8 @@ struct MainMessagesView: View {
             CreateNewMessageView(didSelectNewUser: {user in
                 self.shouldNavigateToChatLogView.toggle()
                 self.chatUser = user
+                self.chatLogViewModel.chatUser = user
+                self.chatLogViewModel.fetchMessages()
             })
         }
     }
